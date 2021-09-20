@@ -4,10 +4,24 @@ import math
 import numpy as np
 import sys
 import copy
-
+import time
 
 
 waittime = 1
+fps = 12
+class Frame_timer:
+    def __init__(self):
+        self.stopwatch = time.time()
+        self.clock = time.time()
+        self.interval = 0.0
+
+    def new_frame(self):
+        self.interval = time.time() - self.stopwatch 
+        if self.interval >= (1.0/fps):
+            self.stopwatch = time.time() 
+            return True
+        return False
+
 class Counter:
     def __init__(self,canvas):
         self.dirtCollected = 0
@@ -156,7 +170,7 @@ class Bot:
         print(self.name, "died")
  
     # cf. Dudek and Jenkin, Computational Principles of Mobile Robotics
-    def move(self,canvas,registryPassives,registryActives,dt, w,h):
+    def move(self,canvas,registryPassives,registryActives,dt, w,h, framerate_timer):
 
         for rr in registryPassives:
             if isinstance(rr,Charger) and self.distanceTo(rr)<10: 
@@ -196,6 +210,7 @@ class Bot:
         newY = newv.item(1)
         newTheta = newv.item(2)
         newTheta = newTheta%(2.0*math.pi) #make sure angle doesn't go outside [0.0,2*pi)
+
         self.x = newX
         self.y = newY
         self.theta = newTheta
@@ -205,8 +220,10 @@ class Bot:
         #strict bounds
         
         self.updateMap()
-        canvas.delete(self.name)
-        self.draw(canvas)
+        #redraw function: timer framerate:
+        if framerate_timer.new_frame() :
+            canvas.delete(self.name)
+            self.draw(canvas)
         
     def distanceTo(self,obj):
         xx,yy = obj.getLocation()
@@ -327,7 +344,7 @@ class Bot:
         self.map_visited[xMapPosition][yMapPosition] = 1
         #print(self.name, xMapPosition, yMapPosition )
 
-    def init_map (self, reg_passive): # declare charger zones as already visited
+    def init_map (self, reg_passive): # declare respective charger zones as already visited, may delete later
         for rp in reg_passive:
             if isinstance (rp, Charger):
                 c_x, c_y = rp.getLocation()
@@ -340,8 +357,7 @@ class Bot:
                 self.map_visited[xMapPosition][yMapPosition] = 1
                 #print(xMapPosition,",",yMapPosition)
 
-
-    def drawMap(self):
+    def drawMap(self): # visual only; may be deleted/ changed for independent colouring
         intervals_x = self.w/self.map_x
         intervals_y = self.h/self.map_y
         for xx in range(0,self.map_x):
@@ -504,9 +520,11 @@ def register(canvas,w ,h, c_range):
     registryActives = []
     registryPassives = []
     registryStorage = []
+
     charger= Charger("Charger"+str(1), 0,0)
     registryPassives.append(charger)
     charger.draw(canvas)
+
     charger= Charger("Charger"+str(2), w,h)
     registryPassives.append(charger)
     charger.draw(canvas)
@@ -546,7 +564,7 @@ def pseudo_or (a,b):
                 ans[xx][yy]=1
     return ans
 
-def moveIt(canvas,registryActives,registryPassives,reg_storage,count,window, w, h , map_gen, map_grid, percentage ):
+def moveIt(canvas,registryActives,registryPassives,reg_storage,count,window, w, h , map_gen, map_grid, percentage, framerate_timer ):
     percent_explored = 0.0
     for rp in registryPassives:
         if isinstance (rp, Charger):
@@ -554,7 +572,7 @@ def moveIt(canvas,registryActives,registryPassives,reg_storage,count,window, w, 
     for rr in registryActives:
         chargerIntensityL, chargerIntensityR = rr.senseCharger(registryPassives)
         rr.transferFunction(map_grid, chargerIntensityL, chargerIntensityR,registryActives,registryPassives)
-        rr.move(canvas,registryPassives,registryActives,1.0, w, h)
+        rr.move(canvas,registryPassives,registryActives,1.0, w, h, framerate_timer)
         registryPassives = rr.collectDirt(canvas,registryPassives, count)
         percent_explored += np.sum(rr.map_visited)
     #secondary loop, just to draw
@@ -574,9 +592,9 @@ def moveIt(canvas,registryActives,registryPassives,reg_storage,count,window, w, 
             reg_storage[idx_final].die_count = copy.deepcopy(rr_final.die_count)
             reg_storage[idx_final].map_visited = copy.deepcopy(rr_final.map_visited) #updated storage, includes your own data, that was just gathered
         window.destroy()
-    canvas.after(waittime,moveIt,canvas,registryActives,registryPassives, reg_storage, count,window,w, h , map_gen, map_grid, percentage )
+    canvas.after(waittime,moveIt,canvas,registryActives,registryPassives, reg_storage, count,window,w, h , map_gen, map_grid, percentage, framerate_timer)
 
-def moveIt_comm(canvas,registryActives,registryPassives, reg_storage,count,window, w, h , map_gen, map_grid, percentage):
+def moveIt_comm(canvas,registryActives,registryPassives, reg_storage,count,window, w, h , map_gen, map_grid, percentage, framerate_timer):
     percent_explored = 0.0
     for rp in registryPassives:
         if isinstance (rp, Charger):
@@ -585,7 +603,7 @@ def moveIt_comm(canvas,registryActives,registryPassives, reg_storage,count,windo
         bot_results = Bot("Bot_result_holder", canvas,0 ,0, 0, 0, map_grid) # not included in registry, simply to old information
         chargerIntensityL, chargerIntensityR = rr.senseCharger(registryPassives)
         rr.transferFunction(map_grid, chargerIntensityL, chargerIntensityR,registryActives,registryPassives)
-        rr.move(canvas,registryPassives,registryActives,1.0, w, h)
+        rr.move(canvas,registryPassives,registryActives,1.0, w, h, framerate_timer)
         registryPassives = rr.collectDirt(canvas,registryPassives, count)
 
         if rr.recharging >=0 and rr.battery > 1600: # change to include bool value in Bot object?, later
@@ -623,9 +641,9 @@ def moveIt_comm(canvas,registryActives,registryPassives, reg_storage,count,windo
 
         window.destroy()
     
-    canvas.after(waittime,moveIt_comm,canvas,registryActives,registryPassives, reg_storage,count,window, w, h , map_gen, map_grid, percentage )
+    canvas.after(waittime,moveIt_comm,canvas,registryActives,registryPassives, reg_storage,count,window, w, h , map_gen, map_grid, percentage, framerate_timer)
 
-def moveIt_complete_comm(canvas,registryActives,registryPassives, reg_storage,count,window, w, h , map_gen, map_grid,percentage):
+def moveIt_complete_comm(canvas,registryActives,registryPassives, reg_storage,count,window, w, h , map_gen, map_grid,percentage, framerate_timer):
     percent_explored = 0.0
     for rp in registryPassives:
         if isinstance (rp, Charger):
@@ -635,7 +653,7 @@ def moveIt_complete_comm(canvas,registryActives,registryPassives, reg_storage,co
         bot_results = Bot("Bot_result_holder", canvas,0 ,0, 0, 0, map_grid) # not included in registry, simply to old information
         chargerIntensityL, chargerIntensityR = rr.senseCharger(registryPassives)
         rr.transferFunction(map_grid, chargerIntensityL, chargerIntensityR,registryActives,registryPassives)
-        rr.move(canvas,registryPassives,registryActives,1.0, w, h)
+        rr.move(canvas,registryPassives,registryActives,1.0, w, h, framerate_timer)
         registryPassives = rr.collectDirt(canvas,registryPassives, count)
         for rs in reg_storage:# pull out all of most recent information, create into a pseudo blackboard of places visited
             bot_results.map_visited = pseudo_or (rs.map_visited, bot_results.map_visited)
@@ -657,7 +675,7 @@ def moveIt_complete_comm(canvas,registryActives,registryPassives, reg_storage,co
     if percentage == (2*rr.map_x *rr.map_y):
         window.destroy()
     
-    canvas.after(waittime,moveIt_complete_comm,canvas,registryActives,registryPassives, reg_storage,count,window, w, h , map_gen, map_grid, percentage)
+    canvas.after(waittime,moveIt_complete_comm,canvas,registryActives,registryPassives, reg_storage,count,window, w, h , map_gen, map_grid, percentage, framerate_timer)
 
 
 def single_run(info, run): # case 0 = independant, case 1 = recharge & debrief, case 2 = complete shared information
@@ -673,20 +691,22 @@ def single_run(info, run): # case 0 = independant, case 1 = recharge & debrief, 
         run_type = "Complete communication"
     else :
         run_type = "Wrong input"
+        print ("Wrong number input")
+        return 0 ,0 , [] #quicker end
     print("type: ",run_type)
     window = tk.Tk()
     canvas = initialise(window, width, height)
     
     registryActives, registryPassives, count, map_gen, map_grid, registryStorage = register(canvas, width, height, collection_range)
     bot_processor = Bot("run_result_processor", canvas,0 ,0,0, 0, map_grid) # not included in registry, simply to old information
-
+    framerate_timer = Frame_timer()
     if info == 0 :
-        moveIt(canvas,registryActives,registryPassives, registryStorage, count, window, width, height , map_gen, map_grid, percentage)
+        moveIt(canvas,registryActives,registryPassives, registryStorage, count, window, width, height , map_gen, map_grid, percentage, framerate_timer)
     elif info == 1:
-        moveIt_comm(canvas,registryActives,registryPassives, registryStorage, count, window, width, height , map_gen, map_grid, percentage)
+        moveIt_comm(canvas,registryActives,registryPassives, registryStorage, count, window, width, height , map_gen, map_grid, percentage, framerate_timer)
     elif info ==2 :
-        moveIt_complete_comm(canvas,registryActives,registryPassives, registryStorage, count, window, width, height , map_gen, map_grid, percentage)    
-    else: 
+        moveIt_complete_comm(canvas,registryActives,registryPassives, registryStorage, count, window, width, height , map_gen, map_grid, percentage, framerate_timer)    
+    else: # Just in case; may delete later
         print ("Wrong number input")
         window.destroy()
         return 0 ,0 , []
@@ -735,7 +755,7 @@ def main():
         comparer_list.append(dev)
     return charge, deaths, comparer_list
 
-#charge, deaths, comparer_list = main()
+charge, deaths, comparer_list = main()
 
 #for x in range (0,11):
 #    np.savetxt(("No_comm_"+str(x)+".csv"),np.subtract(comparer_list[0][x].map_base_scaled, comparer_list[0][x].map_created_scaled), delimiter = ",")
